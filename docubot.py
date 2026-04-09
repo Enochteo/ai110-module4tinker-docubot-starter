@@ -64,7 +64,13 @@ class DocuBot:
         ignore punctuation if needed.
         """
         index = {}
-        # TODO: implement simple indexing
+        for filename, text in documents:
+            words = text.lower().split()
+            for word in words:
+                if word not in index:
+                    index[word] = []
+                if filename not in index[word]:
+                    index[word].append(filename)
         return index
 
     # -----------------------------------------------------------
@@ -81,19 +87,32 @@ class DocuBot:
         - Count how many appear in the text
         - Return the count as the score
         """
-        # TODO: implement scoring
-        return 0
+        query_words = set(query.lower().split())
+        text_lower = text.lower()
+        score = sum(1 for word in query_words if word in text_lower)
+        return score
 
     def retrieve(self, query, top_k=3):
         """
-        TODO (Phase 1):
-        Use the index and scoring function to select top_k relevant document snippets.
-
-        Return a list of (filename, text) sorted by score descending.
+        Phase 1 retrieval with paragraph-level granularity.
+        Splits documents into paragraphs and scores each one separately.
+        Returns top_k relevant paragraph snippets sorted by score descending.
         """
         results = []
-        # TODO: implement retrieval logic
-        return results[:top_k]
+        for filename, text in self.documents:
+            # Split into paragraphs (separated by double newlines)
+            paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+            
+            for paragraph in paragraphs:
+                score = self.score_document(query, paragraph)
+                if score > 0:
+                    results.append((score, filename, paragraph))
+        
+        # Sort by score descending
+        results.sort(key=lambda x: x[0], reverse=True)
+        
+        # Return only (filename, text) tuples
+        return [(filename, text) for _, filename, text in results[:top_k]]
 
     # -----------------------------------------------------------
     # Answering Modes
@@ -103,11 +122,18 @@ class DocuBot:
         """
         Phase 1 retrieval only mode.
         Returns raw snippets and filenames with no LLM involved.
+        Refuses to answer if retrieved snippets lack meaningful evidence.
         """
         snippets = self.retrieve(query, top_k=top_k)
 
         if not snippets:
             return "I do not know based on these docs."
+
+        # Guardrail: check if top result has sufficient relevance
+        min_score = 2  # require at least 2 matching query terms
+        top_score = self.score_document(query, snippets[0][1])
+        if top_score < min_score:
+            return "I do not have enough evidence in the docs to answer this."
 
         formatted = []
         for filename, text in snippets:
